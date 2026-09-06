@@ -1,0 +1,18 @@
+{
+  "candidate_input": {
+    "project_file": "ccf_500_candidates.json",
+    "copied_from": "E:/PythonProject/labor_candidate_pool/s_conditions/S7.json",
+    "sha256": "24f121f3273b0a202fadd9d5ccb234b13c16475a48a8f0c1dc9bd712e144bdc6"
+  },
+  "legacy_selection_record": {
+    "project_file": "legacy_sampling_manifest.json",
+    "copied_from": "E:/PythonProject/labor_candidate_pool/s_conditions/manifest.json",
+    "sha256": "21db30b14b174e7a7c85058d9c57f1150cd9104530b4d343e738a22c78a2e879"
+  },
+  "role_text_annotations": {
+    "project_file": "ccf_400_role_texts.json",
+    "sha256": "020fdf359cc26472d955d5e1ce68e1522f29a34afc33a7f32c54af0ad9050816",
+    "method": "Recovered existing neutralized blocks and per-case permutation from existing S2/S3; not new manual review."
+  },
+  "review_scope": "No historical human review is inferred from the files or performed by this pipeline."
+}

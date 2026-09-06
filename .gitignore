@@ -1,0 +1,15 @@
+.venv/
+.venv-local/
+.idea/
+__pycache__/
+*.py[cod]
+# Local credentials and environment overrides (at any directory depth)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+secrets.json
+data/train/
+data/processed/

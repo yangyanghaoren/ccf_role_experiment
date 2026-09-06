@@ -1,0 +1,87 @@
+{
+  "input": "labor_candidate_pool\\candidate_clear.json",
+  "source_sample_size": 643,
+  "seed": 42,
+  "removed_count": 143,
+  "final_sample_size": 500,
+  "removed_cases_output": "labor_candidate_pool\\s_conditions\\removed_cases.json",
+  "base_fields": [
+    "id",
+    "Category"
+  ],
+  "conditions": {
+    "S1": {
+      "fields": [
+        "id",
+        "Category",
+        "P"
+      ],
+      "output": "labor_candidate_pool\\s_conditions\\S1.json",
+      "sample_size": 500
+    },
+    "S2": {
+      "fields": [
+        "id",
+        "Category",
+        "P",
+        "D"
+      ],
+      "output": "labor_candidate_pool\\s_conditions\\S2.json",
+      "sample_size": 500
+    },
+    "S3": {
+      "fields": [
+        "id",
+        "Category",
+        "P",
+        "F"
+      ],
+      "output": "labor_candidate_pool\\s_conditions\\S3.json",
+      "sample_size": 500
+    },
+    "S4": {
+      "fields": [
+        "id",
+        "Category",
+        "P",
+        "D",
+        "F"
+      ],
+      "output": "labor_candidate_pool\\s_conditions\\S4.json",
+      "sample_size": 500
+    },
+    "S5": {
+      "fields": [
+        "id",
+        "Category",
+        "P",
+        "R"
+      ],
+      "output": "labor_candidate_pool\\s_conditions\\S5.json",
+      "sample_size": 500
+    },
+    "S6": {
+      "fields": [
+        "id",
+        "Category",
+        "P",
+        "D",
+        "R"
+      ],
+      "output": "labor_candidate_pool\\s_conditions\\S6.json",
+      "sample_size": 500
+    },
+    "S7": {
+      "fields": [
+        "id",
+        "Category",
+        "P",
+        "D",
+        "F",
+        "R"
+      ],
+      "output": "labor_candidate_pool\\s_conditions\\S7.json",
+      "sample_size": 500
+    }
+  }
+}
