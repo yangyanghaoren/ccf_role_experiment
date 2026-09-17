@@ -1,4 +1,4 @@
-"""500 案近重复审计、冻结样本及 S1/S2/S3 构造；不调用模型或推断 gold。"""
+"""500 案近重复审计、冻结样本及 S1-S6 构造；复用中性文本，不调用模型或推断 gold。"""
 import argparse
 import hashlib
 import itertools
@@ -21,7 +21,12 @@ LABELS = {"A", "B", "C", "D"}
 FILENAMES = {
     "S1": "ccf_400_S1_correct_roles.json", "S2": "ccf_400_S2_no_roles.json",
     "S3": "ccf_400_S3_mismatched_roles.json", "gold": "ccf_400_verified_gold.json",
+    "S4": "ccf_400_S4_P_D_swap.json",
+    "S5": "ccf_400_S5_P_F_swap.json",
+    "S6": "ccf_400_S6_D_F_swap.json",
 }
+
+SWAPS = {"S4": ("D", "P", "F"), "S5": ("F", "D", "P"), "S6": ("P", "F", "D")}
 
 
 def read_records(path):
@@ -208,13 +213,47 @@ def build_conditions(kept, verified_source, annotations):
                 or any(k == v for k, v in assignment.items())):
             raise ValueError(f"样本 {original_id} 的 S3 必须为 P/D/F 完全错配置换")
         base = {"id": new_id, "Category": record["Category"]}
-        s1 = {**base, **{f: record[f] for f in FIELDS}}
+        s1 = {**base, **{f: neutral[f] for f in "PDF"}, "R": record["R"]}
         outputs["S1"].append(s1)
         outputs["S2"].append({**base, "text": "\n\n".join([neutral[f] for f in "PDF"] + [record["R"]])})
         outputs["S3"].append({**base, **{f: neutral[assignment[f]] for f in "PDF"}, "R": record["R"]})
-        outputs["gold"].append({**s1, "gold": checked["gold"]})
+        for setting, order in SWAPS.items():
+            outputs[setting].append({
+                **base, **{f: neutral[src] for f, src in zip("PDF", order)}, "R": record["R"],
+            })
+        # The gold artifact retains its original source text; it is never a model input.
+        outputs["gold"].append({**base, **{f: record[f] for f in FIELDS}, "gold": checked["gold"]})
         frozen_source.append({**checked, "id": new_id, "original_id": original_id})
+    validate_conditions(outputs)
     return outputs, frozen_source
+
+
+def validate_conditions(outputs):
+    """Check exact segment identity, fixed rules and label isolation across all conditions."""
+    indices = {setting: index_records(outputs[setting]) for setting in FILENAMES}
+    baseline = indices["S1"]
+    for setting, records in indices.items():
+        if records.keys() != baseline.keys():
+            raise ValueError(f"{setting} case IDs differ from S1")
+    cycles = (("D", "F", "P"), ("F", "P", "D"))
+    for case_id, s1 in baseline.items():
+        for setting, records in indices.items():
+            record = records[case_id]
+            if record.get("Category") != s1["Category"]:
+                raise ValueError(f"{setting} case {case_id}: Category differs")
+            if setting != "gold" and any(k in record for k in ("gold", "JudgeResult")):
+                raise ValueError(f"{setting} case {case_id}: outcome leakage")
+            if setting != "S2" and record.get("R") != s1["R"]:
+                raise ValueError(f"{setting} case {case_id}: R differs")
+        expected = "\n\n".join(s1[f] for f in FIELDS)
+        if indices["S2"][case_id].get("text") != expected:
+            raise ValueError(f"S2 case {case_id}: neutral text differs")
+        s3 = indices["S3"][case_id]
+        if not any(all(s3[f] == s1[src] for f, src in zip("PDF", order)) for order in cycles):
+            raise ValueError(f"S3 case {case_id}: not a strict cyclic permutation")
+        for setting, order in SWAPS.items():
+            if any(indices[setting][case_id][f] != s1[src] for f, src in zip("PDF", order)):
+                raise ValueError(f"{setting} case {case_id}: swapped text differs")
 
 
 def new_output_dir(path):
@@ -248,7 +287,7 @@ def run_build(args):
     source_dir, raw_dir = out / "source", out / "raw"
     source_dir.mkdir()
     raw_dir.mkdir()
-    # 先冻结统一样本与标签，再写三个条件。
+    # 先冻结统一样本与标签，再写六个条件。
     write_json(source_dir / "ccf_400_full_source.json", frozen)
     for condition, filename in FILENAMES.items():
         write_json(raw_dir / filename, outputs[condition])
@@ -257,14 +296,20 @@ def run_build(args):
         "verified_source": {"path": str(args.verified_source.resolve()), "sha256": file_hash(args.verified_source)},
         "role_texts": {"path": str(args.role_texts.resolve()), "sha256": file_hash(args.role_texts)},
         "gold_distribution": dict(Counter(r["gold"] for r in frozen)),
-        "conditions": {"S1": "Original P/D/F with correct headings; original R.",
+        "conditions": {"S1": "Frozen neutral P/D/F with correct headings; original R.",
                        "S2": "Annotated neutral P/D/F, then R, joined by two newlines.",
-                       "S3": "Same neutral blocks as S2; per-case frozen derangement; R unchanged."},
+                       "S3": "Same neutral blocks; per-case frozen cyclic permutation; R unchanged.",
+                       "S4": "Neutral P/D swap; F and R unchanged.",
+                       "S5": "Neutral P/F swap; D and R unchanged.",
+                       "S6": "Neutral D/F swap; P and R unchanged."},
+        "integrity_checks": {"case_ids": "identical across S1-S6 and gold",
+                             "neutral_segments": "exact identity under inverse role transformations",
+                             "legal_rules": "unchanged", "outcome_labels": "gold artifact only"},
         "outputs": {filename: file_hash(raw_dir / filename) for filename in FILENAMES.values()},
         "manual_review_note": "Uses existing gold and role annotations; does not perform human review.",
     }
     write_json(out / "manifest.json", manifest)
-    print(f"冻结样本及 S1/S2/S3 已生成：{out}", flush=True)
+    print(f"冻结样本及 S1-S6 已生成：{out}", flush=True)
 
 
 def main():

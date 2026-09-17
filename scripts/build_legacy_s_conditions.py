@@ -1,3 +1,4 @@
+"""Historical field-subset ablation; not the manuscript's S1-S6 provenance experiment."""
 import argparse
 import json
 import random
@@ -72,7 +73,7 @@ def remove_same_random_cases(records):
 
 def main():
     global INPUT_PATH, OUTPUT_DIR, SEED, REMOVE_COUNT
-    parser = argparse.ArgumentParser(description="生成旧版 S1–S7 字段组合条件，不是正式角色实验 S1–S3。")
+    parser = argparse.ArgumentParser(description="生成历史 S1–S7 字段组合条件，不是论文正式 S1–S6 角色实验。")
     parser.add_argument("--input", type=Path, default=INPUT_PATH)
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
     parser.add_argument("--seed", type=int, default=SEED)
@@ -92,6 +93,7 @@ def main():
     kept_records, removed_records = remove_same_random_cases(records)
 
     manifest = {
+        "experiment": "historical_field_subset_ablation_not_formal_S1_S6",
         "input": str(INPUT_PATH),
         "source_sample_size": len(records),
         "seed": SEED,

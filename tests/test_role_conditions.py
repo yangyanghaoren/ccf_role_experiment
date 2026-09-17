@@ -57,9 +57,14 @@ class RoleConditionsTests(unittest.TestCase):
                       "s3_assignment": {"P": "F", "D": "P", "F": "D"}}
         outputs, frozen = pipeline.build_conditions([record], verified, [annotation])
         self.assertEqual(outputs["S3"][0]["P"], "存在劳动关系")
+        self.assertEqual(outputs["S1"][0]["P"], "诉请工资")
+        self.assertEqual(outputs["gold"][0]["P"], record["P"])
+        for setting, order in pipeline.SWAPS.items():
+            for field, source in zip("PDF", order):
+                self.assertEqual(outputs[setting][0][field], annotation["neutral"][source])
         self.assertEqual(outputs["S2"][0]["text"], "诉请工资\n\n已经支付\n\n存在劳动关系\n\n劳动合同法")
         self.assertEqual(frozen[0]["gold"], "B")
-        for setting in ["S1", "S2", "S3"]:
+        for setting in ["S1", "S2", "S3", "S4", "S5", "S6"]:
             self.assertNotIn("gold", outputs[setting][0])
             self.assertNotIn("JudgeResult", outputs[setting][0])
         bad = {**annotation, "source_fields_sha256": "changed"}
@@ -67,6 +72,19 @@ class RoleConditionsTests(unittest.TestCase):
             pipeline.build_conditions([record], verified, [bad])
         with self.assertRaisesRegex(ValueError, "gold"):
             pipeline.build_conditions([record], [{**verified[0], "gold": None}], [annotation])
+        for setting, field, value in [
+            ("S4", "P", "altered"), ("S6", "R", "altered"),
+            ("S2", "text", "altered"), ("S3", "P", "altered"),
+            ("S5", "gold", "B"), ("S1", "JudgeResult", "outcome"),
+        ]:
+            damaged = copy.deepcopy(outputs)
+            damaged[setting][0][field] = value
+            with self.subTest(setting=setting, field=field), self.assertRaises(ValueError):
+                pipeline.validate_conditions(damaged)
+        damaged = copy.deepcopy(outputs)
+        damaged["S6"] = []
+        with self.assertRaises(ValueError):
+            pipeline.validate_conditions(damaged)
 
     def test_count_mismatch_writes_audit_but_no_conditions(self):
         with tempfile.TemporaryDirectory() as tmp:

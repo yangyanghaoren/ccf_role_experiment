@@ -1,6 +1,6 @@
 # CCF 劳动争议案件司法角色实验
 
-本项目用于论文中的大语言模型裁判结果分类实验：在同一批 400 个劳动争议案件上，比较正确角色、无角色和错配角色三种输入条件下的预测表现。项目包含正式实验数据、模型调用程序、统计评估程序，以及数据清洗与条件构造代码。
+本项目用于论文中的受控裁判结果重建实验：在同一批 400 个劳动争议案件上，比较正确来源、来源缺失、完全错配和三种局部角色交换，共六种输入条件。由于输入包含法院查明事实和法律规则，本任务不是未审案件的前瞻性预测。
 
 ## 1. 实验任务
 
@@ -20,8 +20,11 @@
 | S1：正确角色 | `ccf_400_S1_correct_roles.json` | 按原告诉称 P、被告抗辩 D、法院查明事实 F、法律规则 R 分块 |
 | S2：无角色 | `ccf_400_S2_no_roles.json` | `text` 字段，统一放在“案件材料”标题下 |
 | S3：错配角色 | `ccf_400_S3_mismatched_roles.json` | 使用文件中预先处理的 P/D/F/R，并添加与 S1 相同的标题 |
+| S4：P–D 交换 | `ccf_400_S4_P_D_swap.json` | 交换中性 P/D，F/R 不变 |
+| S5：P–F 交换 | `ccf_400_S5_P_F_swap.json` | 交换中性 P/F，D/R 不变 |
+| S6：D–F 交换 | `ccf_400_S6_D_F_swap.json` | 交换中性 D/F，P/R 不变 |
 
-S3 使用与 S2 相同的中性化 P/D/F 段落，按逐案固定的完全错配置换重新分配角色，R 保持不变。S1 使用原始角色文本。模型调用程序不会再次交换角色；中性文本和逐案置换已从现有材料恢复到 `data/source/ccf_400_role_texts.json`，生成时进行来源哈希核验。恢复已有文本不等同于重建历史中性化改写算法。
+S1–S6 使用相同的冻结中性化 P/D/F 段落，R 始终保持不变。S1 正确归属，S2 去除角色标题，S3 使用逐案固定的两种严格循环置换之一，S4–S6 分别交换两种角色。模型调用程序不会再次交换角色；中性文本和 S3 映射保存在 `data/source/ccf_400_role_texts.json`，生成时进行原始来源哈希核验。恢复已有文本不等同于重建历史中性化改写算法。
 
 标准答案位于 `data/raw/ccf_400_verified_gold.json`，仅用于本地比较，不加入模型提示词。当前标签分布为 A=122、B=112、C=160、D=6。
 
@@ -36,9 +39,10 @@ ccf_role_experiment/
 │   └── .env.example          # 不含密钥的配置示例
 ├── scripts/
 │   ├── build_labor_candidates.py  # 原始案件清洗及 P/D/F 提取
-│   └── build_s_conditions.py      # 正式 500→400 去重及 S1/S2/S3 生成
+│   ├── build_s_conditions.py      # 正式 500→400 去重及 S1–S6 生成
+│   └── build_legacy_s_conditions.py # 历史字段组合实验，不用于本论文
 ├── data/
-│   ├── raw/                  # 正式 S1/S2/S3 和 gold，共四个 JSON
+│   ├── raw/                  # 正式 S1–S6 和 gold，共七个 JSON
 │   ├── source/               # 500 案输入、400 案来源及角色文本标注
 │   └── processed/            # 清洗输出，运行脚本后生成
 ├── src/
@@ -48,7 +52,7 @@ ccf_role_experiment/
     ├── <model>_raw_results.jsonl
     ├── <model>_S1_S2_S3_results.json
     ├── <model>_S1_S2_S3_results.csv
-    └── metrics/all_models/   # 已保存的统计结果
+    └── metrics/all_models_S1_S6/ # 六条件统计结果；另有 S4_S5_S6 模型结果文件
 ```
 
 原始 `train` 数据位于 `E:\PythonProject\train`，未复制到本项目。清洗脚本可通过参数直接读取该目录。
@@ -125,10 +129,10 @@ py -3.13 scripts/build_labor_candidates.py --input-dir E:\PythonProject\train
 | `removed_cases.json` | 剔除编号、对应代表与簇编号 |
 | `deduplicated_candidates.json` | 保留原始编号的 400 条候选 |
 | `source/ccf_400_full_source.json` | 冻结样本、原始编号、既有 gold 与来源信息 |
-| `raw/ccf_400_*.json` | 正式 S1、S2、S3 与 gold 四个文件 |
+| `raw/ccf_400_*.json` | 正式 S1–S6 与 gold 七个文件 |
 | `manifest.json` | 条件定义、标注来源哈希、标签分布及输出哈希 |
 
-生成条件前，脚本严格匹配 `ccf_400_full_source.json` 中的原始编号、材料和 gold，以及 `ccf_400_role_texts.json` 中的材料哈希。S1 保留原始 P/D/F；S2 按 P、D、F 顺序拼接已有中性文本；S3 将同一套中性文本按已冻结的逐案映射完全错配。所有条件保留相同 R，gold 不写入三组模型输入。新生成的四个正式数据文件及来源文件均与现有文件 JSON 内容完全一致。
+生成条件前，脚本严格匹配 `ccf_400_full_source.json` 中的原始编号、材料和 gold，以及 `ccf_400_role_texts.json` 中的来源材料哈希。S1 使用冻结中性 P/D/F；S2 按 P、D、F、R 顺序以双换行拼接；S3 保留既有逐案循环置换；S4–S6 使用固定两两交换。脚本逐案验证编号、Category、R、S2 拼接和 S3–S6 的精确文本映射，并检查模型输入不含 gold 或 JudgeResult。gold 文件保留原始来源文本及既有标签，仅供评估。
 
 如需从已有 S2/S3 重新恢复角色文本标注，可运行以下命令生成新文件。该步骤复用历史文本，不执行新的自动中性化或人工核验：
 
@@ -160,7 +164,7 @@ MODEL=qwen3.8-max
 .\.venv-local\Scripts\python.exe -m src.main
 ```
 
-当前程序每次运行一个模型。现有结果的模型标识为 `glm-5.3`、`gpt-5.6`、`qwen3.8-max`，每个模型各 1,200 条结果，即 400 案 × 3 条件；这些名称是本项目保存的请求标识，接口实际返回的模型另记在 `returned_model`。
+当前程序每次运行一个模型。正式实验共 400 案 × 6 条件 × 3 模型 = 7,200 条结果；每个模型的既有结果分别保存在 S1_S2_S3 和 S4_S5_S6 文件中。请求标识为 `glm-5.3`、`gpt-5.6`、`qwen3.8-max`，接口实际返回标识另记在 `returned_model`。具体运行条件以 `src/main.py` 的当前配置为准。
 
 `src/main.py` 中的主要配置：
 
@@ -186,7 +190,7 @@ Push-Location src
 Pop-Location
 ```
 
-默认评估上述三个模型，Bootstrap 重采样 10,000 次，随机种子为 20260901。输出会更新 `results/metrics/all_models/` 中的同名文件。
+默认评估上述三个模型的全部六条件，Bootstrap 重采样 10,000 次，随机种子为 20260901。输出会更新 `results/metrics/all_models_S1_S6/` 中的同名文件。
 
 | 输出 | 内容 |
 | --- | --- |
@@ -198,7 +202,7 @@ Pop-Location
 | `06_transition_*.csv` | 条件之间的预测转移矩阵 |
 | `07_efficiency_metrics.csv` | 延迟和 token 使用量的均值、中位数、P95 |
 
-对条件 a→b，有害翻转表示由正确变为错误，有益翻转表示由错误变为正确；`delta_accuracy` 按 a−b 计算。评估会排除无效预测，配对统计使用 S1/S2/S3 均有有效预测的案件，因此论文中应同时报告有效样本量。评估器对重复记录只给出警告，建议使用主程序整理后的 JSON，避免直接传入包含重复尝试的原始 JSONL。
+对条件 a→b，有害翻转表示由正确变为错误，有益翻转表示由错误变为正确。正式统计应使用全部六条件均完整的冻结结果。论文预设九项主比较：S1–S2、S1–S3、S2–S3、S1–S4、S1–S5、S1–S6、S4–S5、S4–S6、S5–S6；每个模型内对精确 McNemar p 值进行 Holm 校正。配对 Bootstrap 使用相同案件重采样索引，95% 百分位置信区间不作多重比较校正。指标差值方向以评估输出的列名为准。
 
 ## 7. 复现记录
 
