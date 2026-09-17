@@ -1,209 +1,165 @@
-# CCF 劳动争议案件司法角色实验
+# 司法信息来源敏感性实验
 
-本项目用于论文中的受控裁判结果重建实验：在同一批 400 个劳动争议案件上，比较正确来源、来源缺失、完全错配和三种局部角色交换，共六种输入条件。由于输入包含法院查明事实和法律规则，本任务不是未审案件的前瞻性预测。
+本项目配套论文 **Judicial Source Sensitivity in Large Language Models: A Controlled Study of Procedural Role Misattribution in Legal Decision-Making**，研究大语言模型如何利用原告、被告与法院的信息来源，以及来源缺失或错误归属如何改变裁判结果重建。
 
-## 1. 实验任务
+实验使用 400 个中国劳动争议案件、六种输入条件和三个模型，共 7,200 个模型–案件–条件实例。输入包含法院已经查明的事实和法律规则，因此任务是**受控裁判结果重建**，不代表未审案件的前瞻性预测能力。
 
-模型根据案件材料输出一个标签：
+## 实验设计
 
-| 标签 | 含义 |
-| --- | --- |
-| A | 全部支持 |
-| B | 部分支持 |
-| C | 全部不支持 |
-| D | 因程序性原因未进入实体裁判 |
+每案包含原告请求 P、被告抗辩 D、法院查明事实 F 和法律规则 R。六条件共用同一套冻结中性化 P/D/F 文本，减少直接暴露原始来源的表达；R 和标准答案始终不变。
 
-判断对象是当事人在庭审中最终保留的实体诉讼请求；撤回或放弃的请求不计入，诉讼费一般不作为独立实体请求。具体提示词见 `src/main.py` 的 `SYSTEM_PROMPT`。
-
-| 正式条件 | 文件 | 模型接收的材料 |
+| 条件 | 来源处理 | 正式数据文件 |
 | --- | --- | --- |
-| S1：正确角色 | `ccf_400_S1_correct_roles.json` | 按原告诉称 P、被告抗辩 D、法院查明事实 F、法律规则 R 分块 |
-| S2：无角色 | `ccf_400_S2_no_roles.json` | `text` 字段，统一放在“案件材料”标题下 |
-| S3：错配角色 | `ccf_400_S3_mismatched_roles.json` | 使用文件中预先处理的 P/D/F/R，并添加与 S1 相同的标题 |
-| S4：P–D 交换 | `ccf_400_S4_P_D_swap.json` | 交换中性 P/D，F/R 不变 |
-| S5：P–F 交换 | `ccf_400_S5_P_F_swap.json` | 交换中性 P/F，D/R 不变 |
-| S6：D–F 交换 | `ccf_400_S6_D_F_swap.json` | 交换中性 D/F，P/R 不变 |
+| S1 | 中性 P/D/F 正确归属 | `ccf_400_S1_correct_roles.json` |
+| S2 | 去除角色标题，按 P/D/F/R 顺序拼接 | `ccf_400_S2_no_roles.json` |
+| S3 | P/D/F 严格循环错配，无角色保持原位 | `ccf_400_S3_mismatched_roles.json` |
+| S4 | 交换 P 与 D，F 不变 | `ccf_400_S4_P_D_swap.json` |
+| S5 | 交换 P 与 F，D 不变 | `ccf_400_S5_P_F_swap.json` |
+| S6 | 交换 D 与 F，P 不变 | `ccf_400_S6_D_F_swap.json` |
 
-S1–S6 使用相同的冻结中性化 P/D/F 段落，R 始终保持不变。S1 正确归属，S2 去除角色标题，S3 使用逐案固定的两种严格循环置换之一，S4–S6 分别交换两种角色。模型调用程序不会再次交换角色；中性文本和 S3 映射保存在 `data/source/ccf_400_role_texts.json`，生成时进行原始来源哈希核验。恢复已有文本不等同于重建历史中性化改写算法。
+S3 的两种循环置换按案件提前冻结，所有模型共用同一映射。模型程序直接使用条件文件，不再次交换字段。中性化不保证消除所有语义或风格线索。
 
-标准答案位于 `data/raw/ccf_400_verified_gold.json`，仅用于本地比较，不加入模型提示词。当前标签分布为 A=122、B=112、C=160、D=6。
+模型只输出一个 A–D 标签，判断对象是原告最终保留的实体请求。撤回或放弃的请求不计入，诉讼费用通常不作为独立实体请求。
 
-## 2. 目录结构
+| 标签 | 裁判结果 | 案件数 |
+| --- | --- | --- |
+| A | 全部实体请求获支持 | 122 |
+| B | 实体请求部分获支持 | 112 |
+| C | 全部实体请求被驳回 | 160 |
+| D | 因程序性处置未进行实体裁判 | 6 |
+
+标准答案位于 `data/raw/ccf_400_verified_gold.json`，来自既有人工标注。gold 文件保留原始来源文本，仅用于本地评估，不加入模型提示词。
+
+## 仓库结构
 
 ```text
-ccf_role_experiment/
-├── README.md
-├── requirements.txt
-├── config/
-│   ├── .env                  # 本地接口配置
-│   └── .env.example          # 不含密钥的配置示例
-├── scripts/
-│   ├── build_labor_candidates.py  # 原始案件清洗及 P/D/F 提取
-│   ├── build_s_conditions.py      # 正式 500→400 去重及 S1–S6 生成
-│   └── build_legacy_s_conditions.py # 历史字段组合实验，不用于本论文
-├── data/
-│   ├── raw/                  # 正式 S1–S6 和 gold，共七个 JSON
-│   ├── source/               # 500 案输入、400 案来源及角色文本标注
-│   └── processed/            # 清洗输出，运行脚本后生成
-├── src/
-│   ├── main.py               # 并发调用模型、断点续跑、结果导出
-│   └── evaluator.py          # 指标、配对检验和置信区间
-└── results/
-    ├── <model>_raw_results.jsonl
-    ├── <model>_S1_S2_S3_results.json
-    ├── <model>_S1_S2_S3_results.csv
-    └── metrics/all_models_S1_S6/ # 六条件统计结果；另有 S4_S5_S6 模型结果文件
+config/.env.example                  接口配置示例
+data/raw/                           冻结的 S1–S6 和 gold
+data/source/                        候选、冻结来源、中性文本和 S3 映射
+scripts/build_labor_candidates.py    原始文书规则筛选及 P/D/F 提取
+scripts/build_s_conditions.py        500→400 去重、六条件构造及完整性检查
+scripts/build_legacy_s_conditions.py 历史字段组合实验，不用于本论文
+src/main.py                         模型调用、断点续跑及结果导出
+src/evaluator.py                    六条件指标与配对统计
+tests/test_role_conditions.py        构造测试及完整数据回归
+results/                            归档预测与原始日志
+results/metrics/all_models_S1_S6/    归档的六条件统计结果
+docs/data_preparation.md             数据处理细节及可追溯范围
 ```
 
-原始 `train` 数据位于 `E:\PythonProject\train`，未复制到本项目。清洗脚本可通过参数直接读取该目录。
+原始语料来自 ModelScope 的 KLGR123/wenshu_dataset，完整原始语料不随仓库提供。详见 [数据准备说明](docs/data_preparation.md)。
 
-## 3. 环境准备
+## 安装
 
-以下命令使用 Windows PowerShell。进入项目根目录后创建新环境：
+以下命令使用 Windows PowerShell。已有仓库可跳过克隆，在项目根目录运行其余命令。
 
 ```powershell
-cd E:\ccf_role_experiment
-py -3.13 -m venv .venv-local
+git clone https://github.com/yangyanghaoren/ccf_role_experiment.git
+cd ccf_role_experiment
+python -m venv .venv-local
 .\.venv-local\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-现有 `.venv` 指向的 `E:\Anaconda\python.exe` 在本次检查中不可用，因此示例使用新建的 `.venv-local`。在 PyCharm 中也可将解释器设置为该环境的 `Scripts\python.exe`。
+依赖包括 numpy、pandas、scikit-learn、scipy、openai 和 python-dotenv，尚未锁定版本。归档复现时应记录实际 Python 和依赖版本。
 
-依赖包含 numpy、pandas、scikit-learn、scipy、openai 和 python-dotenv。现有依赖文件没有锁定版本；正式复现实验时应另外保存实际使用的依赖版本。初筛脚本仅使用 Python 标准库；正式条件脚本使用 numpy、scipy 和 scikit-learn。
+## 复现数据构造
 
-## 4. 数据清洗
+论文数据链为：643 案候选，经完整性和任务适用性审核保留 500 案，再经近重复检测保留 400 案。候选池脚本负责规则筛选及 P/D/F 提取，不替代 643→500 的人工审核、R 整理或人工标签复核。正式构造复用冻结的 500 案材料。
 
-### 4.1 生成候选池
-
-`scripts/build_labor_candidates.py` 用于案件筛选、去重和 P/D/F 提取，支持命令行路径参数、输入检查及 QC 统计导出。
+去重拼接 P/D/F/R，执行 Unicode NFKC 规范化、连续数字替换为 `<NUM>` 和空白删除；使用字符级 TF-IDF 3–5 gram 和余弦相似度。相似度 ≥0.75 时建立连接，以连通分量为重复簇，每簇保留原始编号最小的记录。规范化仅用于去重，不改写实验文本。
 
 ```powershell
-py -3.13 scripts/build_labor_candidates.py --input-dir E:\PythonProject\train
-```
+# 完整去重与六条件构造；输出目录必须不存在或为空
+.\.venv-local\Scripts\python.exe scripts/build_s_conditions.py build --output-dir data/processed/role_experiment_S1_S6
 
-默认输出到本项目的 `data/processed/labor_candidate_pool/`。也可通过 `--output-dir` 指定其他目录；省略 `--input-dir` 时读取本项目的 `data/train/`。
-
-输入为递归目录中的 JSON 文件，顶层包含 `ctxs` 字典，每个案件包含 `CaseId`、`Case`、`Category`、`JudgeAccusation`、`JudgeReason`、`JudgeResult` 等字段。
-
-主要处理步骤：
-
-1. 筛选 `cat_1=劳动人事` 的案件，按 CaseId 和规范化文本哈希去重。
-2. 限定二级类别为工资福利、劳动合同、劳动争议，文书类型为判决书或裁定书。
-3. 排除必要文本缺失，以及诉辩文本或裁判理由长度恰好为 700 字符的疑似截断记录。
-4. 通过规则提取原告诉称 P、被告抗辩 D、法院查明事实 F，并判断抗辩类型、边界及潜在结果泄漏。
-5. 分为 `CLEAR`、`REVIEW`、`EXCLUDED`，输出候选池及复核记录。`CLEAR` 是规则筛选状态，不等同于人工核验通过。
-
-| 输出文件 | 内容 |
-| --- | --- |
-| `candidate_clear.json` | 精简候选记录，含 P/D/F 和 JudgeResult |
-| `candidate_clear_full.json` | 完整候选记录，含来源、原文和 QC 信息 |
-| `candidate_review.json` | 待人工复核记录 |
-| `excluded_cases.json` | 被排除记录及原因 |
-| `qc_statistics.json` | 扫描、去重、QC 与类别分布 |
-| `qc_review.csv` | 方便人工查看的复核清单 |
-
-### 4.2 正式 500→400 案去重与角色条件生成
-
-`scripts/build_s_conditions.py` 默认读取 `data/source/ccf_500_candidates.json`，该文件包含 500 条 P/D/F/R 均非空的待去重材料。
-
-去重时依次拼接 P、D、F、R，实施 Unicode NFKC 规范化，将连续数字（正则 `\d+`）替换为 `<NUM>`，删除全部空白。使用字符级 TF-IDF（3–5 gram；小写转换、平滑 IDF、L2 归一化），计算余弦相似度。相似度 ≥0.75 的文书之间建立边，以连通分量作为重复簇，每簇保留原始编号最小的文书，保留样本按输入顺序排列。规范化仅用于去重，不修改正式提示词材料。
-
-本次完整运行得到 **38 个重复簇、361 条阈值边、剔除 100 份、保留 400 份**。保留的原始编号与已有正式来源文件完全一致。代码不会为凑足 400 条而随机删样；数量断言不满足时保存审计并停止条件生成。
-
-```powershell
-# 从项目根目录运行；依赖已安装到 .venv-local
-.\.venv-local\Scripts\python.exe scripts/build_s_conditions.py build
-# 已有输出时使用新的空目录；程序拒绝覆盖非空目录
-.\.venv-local\Scripts\python.exe scripts/build_s_conditions.py build --output-dir data/processed/role_experiment_rerun
-# 只运行去重与审计
+# 仅生成去重审计
 .\.venv-local\Scripts\python.exe scripts/build_s_conditions.py build --dedup-only --output-dir data/processed/dedup_audit
+
+# 构造测试与完整 500 案回归，无需接口密钥
+.\.venv-local\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-默认输出在 `data/processed/role_experiment/`。本项目已保存一次完整运行，因此再次运行默认命令时需改用新的输出目录。
+冻结数据得到 38 个重复簇，剔除 100 案、保留 400 案。数量不符时程序保存审计并停止，不强行删样。生成前核验来源编号、材料哈希和既有标签；生成后逐案检查六条件的编号集合、Category、R、文本映射和答案隔离。
 
-| 输出 | 内容 |
-| --- | --- |
-| `dedup_report.json` | 参数、环境版本、输入哈希、实测数量及保留编号 |
-| `duplicate_clusters.json` | 每个重复簇的成员、代表与剔除编号 |
-| `similarity_edges.json` | 所有达到阈值的样本对及相似度 |
-| `removed_cases.json` | 剔除编号、对应代表与簇编号 |
-| `deduplicated_candidates.json` | 保留原始编号的 400 条候选 |
-| `source/ccf_400_full_source.json` | 冻结样本、原始编号、既有 gold 与来源信息 |
-| `raw/ccf_400_*.json` | 正式 S1–S6 与 gold 七个文件 |
-| `manifest.json` | 条件定义、标注来源哈希、标签分布及输出哈希 |
+输出包含去重报告、重复簇、相似度边、剔除清单、冻结来源、七个正式 JSON 和 manifest。回归测试将 S1–S6、gold 和冻结来源与仓库数据逐条比较。
 
-生成条件前，脚本严格匹配 `ccf_400_full_source.json` 中的原始编号、材料和 gold，以及 `ccf_400_role_texts.json` 中的来源材料哈希。S1 使用冻结中性 P/D/F；S2 按 P、D、F、R 顺序以双换行拼接；S3 保留既有逐案循环置换；S4–S6 使用固定两两交换。脚本逐案验证编号、Category、R、S2 拼接和 S3–S6 的精确文本映射，并检查模型输入不含 gold 或 JudgeResult。gold 文件保留原始来源文本及既有标签，仅供评估。
-
-如需从已有 S2/S3 重新恢复角色文本标注，可运行以下命令生成新文件。该步骤复用历史文本，不执行新的自动中性化或人工核验：
+中性文本来自 `data/source/ccf_400_role_texts.json`，不在构造时重新改写。需要从现有 S2/S3 恢复标注时，输出到新文件：
 
 ```powershell
 .\.venv-local\Scripts\python.exe scripts/build_s_conditions.py prepare-role-texts --output data/processed/recovered_role_texts.json
 ```
 
-验证命令：
+若需从原始语料重新生成规则候选池：
 
 ```powershell
-.\.venv-local\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv-local\Scripts\python.exe scripts/build_labor_candidates.py --input-dir D:\path\to\train --output-dir data/processed/labor_candidate_pool
 ```
 
-详细方法、数据来源与论文措辞见 [docs/data_preparation.md](docs/data_preparation.md)。
+将输入路径替换为实际语料目录。该步骤不保证自动得到论文人工审核后的 500 案样本。
 
-## 5. 运行正式模型实验
+## 复现归档结果
 
-已有 `config/.env` 时直接编辑；首次配置可从 `.env.example` 复制。配置项为：
-
-```dotenv
-CLOSEAI_API_KEY=your_api_key_here
-CLOSEAI_BASE_URL=https://your-api-endpoint.example/v1
-MODEL=qwen3.8-max
-```
-
-填写实际可用的 OpenAI 兼容接口及模型标识，然后在项目根目录运行：
+统计分析仅使用本地结果，不调用模型，也不需要 API 密钥：
 
 ```powershell
-.\.venv-local\Scripts\python.exe -m src.main
+.\.venv-local\Scripts\python.exe src/evaluator.py
 ```
 
-当前程序每次运行一个模型。正式实验共 400 案 × 6 条件 × 3 模型 = 7,200 条结果；每个模型的既有结果分别保存在 S1_S2_S3 和 S4_S5_S6 文件中。请求标识为 `glm-5.3`、`gpt-5.6`、`qwen3.8-max`，接口实际返回标识另记在 `returned_model`。具体运行条件以 `src/main.py` 的当前配置为准。
+默认读取 GLM-5.3、GPT-5.6、Qwen3.8-Max 各自的 `S1_S2_S3_results.json` 和 `S4_S5_S6_results.json`，合并六条件结果。输出到 `results/metrics/all_models_S1_S6/`，会更新该目录中的同名文件。
 
-`src/main.py` 中的主要配置：
-
-| 配置 | 默认值 | 说明 |
-| --- | --- | --- |
-| TEST_LIMIT | None | 使用全部案件；小规模试跑可改为 5 |
-| MAX_WORKERS | 5 | 并发线程数 |
-| REQUEST_TIMEOUT | 90.0 | 单次请求超时秒数 |
-| MAX_RETRIES | 5 | 最多尝试次数 |
-| RETRY_WAIT | 3 | 失败后按 3、6、9、12 秒等待 |
-
-程序当前统一发送 `extra_body={"reasoning_effort": "low"}`，更换模型时需按所用接口支持情况调整。调用会实际发送案件材料并产生接口请求。
-
-每完成一条任务立即追加 JSONL 日志。重跑时按照 `(case_id, setting, model)` 跳过已有有效预测，失败任务会重试；最终整理为 JSON 和 CSV。**已有完整日志时，同名模型通常不会重新请求。** 更改数据、提示词或推理参数后，应先将对应模型的已有结果移入单独的备份目录，再开始新一轮，避免混用旧预测。
-
-## 6. 统计评估
-
-评估仅读取本地结果，无需调用模型。现有评估入口使用相对于 `src` 的路径，因此按以下方式运行：
-
-```powershell
-Push-Location src
-..\.venv-local\Scripts\python.exe evaluator.py
-Pop-Location
-```
-
-默认评估上述三个模型的全部六条件，Bootstrap 重采样 10,000 次，随机种子为 20260901。输出会更新 `results/metrics/all_models_S1_S6/` 中的同名文件。
+评估要求每个模型、每种条件有 400 个唯一案件，并验证有效标签、固定 gold 和一致案件集合。无效标签、重复记录或案件集合不一致会直接报错，不静默删除。
 
 | 输出 | 内容 |
 | --- | --- |
 | `01_basic_metrics.csv` | Accuracy、Macro-F1、Weighted-F1 |
 | `02_classwise_metrics.csv` | 各类别 Precision、Recall、F1、Support |
-| `03_confusion_*.csv` | 各模型、条件的混淆矩阵 |
-| `04_paired_comparisons.csv` | 预测翻转率、有害/有益翻转、精确 McNemar 检验 |
-| `05_bootstrap_ci.csv` | 配对指标差值的 95% Bootstrap 置信区间 |
-| `06_transition_*.csv` | 条件之间的预测转移矩阵 |
-| `07_efficiency_metrics.csv` | 延迟和 token 使用量的均值、中位数、P95 |
+| `03_confusion_*.csv` | 混淆矩阵及按真实类别归一化的矩阵 |
+| `04_paired_comparisons.csv` | 翻转、有害/有益变化、精确 McNemar 和 Holm 校正 |
+| `05_bootstrap_ci.csv` | 配对 Accuracy、Macro-F1 差值的 95% 置信区间 |
+| `06_transition_*.csv` | 同一案件在不同条件下的预测转移矩阵 |
+| `07_efficiency_metrics.csv` | 延迟及 token 使用统计 |
+| `08_overall_summary.csv` | 六条件汇总 |
+| `09_accuracy_table_percent.csv` | Accuracy 百分比表 |
+| `10_macro_f1_table.csv`、`11_weighted_f1_table.csv` | F1 汇总表 |
 
-对条件 a→b，有害翻转表示由正确变为错误，有益翻转表示由错误变为正确。正式统计应使用全部六条件均完整的冻结结果。论文预设九项主比较：S1–S2、S1–S3、S2–S3、S1–S4、S1–S5、S1–S6、S4–S5、S4–S6、S5–S6；每个模型内对精确 McNemar p 值进行 Holm 校正。配对 Bootstrap 使用相同案件重采样索引，95% 百分位置信区间不作多重比较校正。指标差值方向以评估输出的列名为准。
+九项主比较为 S1–S2、S1–S3、S2–S3、S1–S4、S1–S5、S1–S6、S4–S5、S4–S6、S5–S6。每个模型内对九个精确 McNemar p 值进行 Holm 校正，显著性阈值为校正后 p<0.05。
 
-## 7. 复现记录
+配对 Bootstrap 重采样 10,000 次，固定随机种子 20260901，两条件共用相同案件索引，采用 2.5% 和 97.5% 百分位区间。区间不作多重比较校正；比较 a→b 时，`delta_accuracy` 为 Accuracy(b)−Accuracy(a)。方向性转移分析属于探索性描述。
 
-论文归档时建议保存数据版本、提示词、模型请求及返回标识、接口配置（不含密钥）、推理参数、依赖版本和运行日期。当前项目提供已有实验结果，但 README 不将其扩展为未经核验的论文结论。
+## 重新调用模型
+
+将 `config/.env.example` 复制为本地 `config/.env`，填写实际接口配置：
+
+```dotenv
+CLOSEAI_API_KEY=your_api_key_here
+CLOSEAI_BASE_URL=https://your-api-endpoint.example/v1
+MODEL=gpt-5.6
+```
+
+`config/.env` 被 Git 忽略，不应提交密钥。接口需要支持请求的模型标识和参数。
+
+```powershell
+.\.venv-local\Scripts\python.exe -m src.main
+```
+
+当前程序每次运行一个模型的全部六条件，共 2,400 个实例；三个模型需分别配置并运行。系统提示词见 `src/main.py` 的 `SYSTEM_PROMPT`。请求使用 `reasoning_effort=low`，其他解码参数沿用接口默认设置。
+
+| 配置 | 当前值 |
+| --- | --- |
+| TEST_LIMIT | None，全部案件 |
+| MAX_WORKERS | 8 |
+| REQUEST_TIMEOUT | 90 秒 |
+| MAX_RETRIES | 最多 5 次尝试 |
+| RETRY_WAIT | 失败后按 3、6、9、12 秒等待 |
+
+日志保存请求及返回模型标识、预测、延迟和 token 信息。有效预测按 `(case_id, setting, model)` 跳过，失败任务继续重试。模型调用会发送案件材料并产生接口费用。
+
+当前输出为 `<model>_raw_results.jsonl`、`<model>_S1_S2_S3_S4_S5_S6_results.json` 和同名 CSV。合并文件与归档的两批结果命名不同：分析新结果时，在评估入口的 `result_paths` 中改为对应合并文件，不同时传入新旧结果造成重复。
+
+修改输入、提示词或推理设置后，应在独立仓库副本运行，或先归档对应旧日志，避免断点续跑复用旧预测。构造输出位于指定目录，模型程序仍读取 `data/raw/`；使用新输入前需明确切换数据路径并核验版本。
+
+## 复现范围
+
+代码能复现冻结材料上的去重、条件构造和统计分析，不重建历史人工审核或中性化改写过程。商业模型版本和接口行为可能变化，重新调用不保证得到相同预测。
+
+论文归档应保留数据及提示词版本、请求与返回模型标识、推理设置、运行日期、依赖版本和不含密钥的接口信息。类别 D 仅有 6 案，类别指标需结合样本量解释；当前样本及三个模型的行为不能直接推广到其他法律领域。
