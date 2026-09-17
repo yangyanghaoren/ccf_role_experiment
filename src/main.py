@@ -37,11 +37,11 @@ BASE_URL = os.getenv(
 MODEL = os.getenv(
     "MODEL",
     #  三个模型是:
-    # qwen3.8-max
-    # gpt-5.6
+    # "glm-5.3"
+    "gpt-5.6"
     # qwen3.8-max
 
-    "qwen3.8-max"
+    # "qwen3.8-max"
 )
 
 if not API_KEY:
@@ -57,8 +57,7 @@ if not API_KEY:
 TEST_LIMIT = None
 
 # 并发线程数
-# 建议先 5，稳定后可以改成 8
-MAX_WORKERS = 5
+MAX_WORKERS = 8
 
 # 单次 API 请求超时（秒）
 REQUEST_TIMEOUT = 90.0
@@ -80,6 +79,9 @@ VALID_LABELS = {"A", "B", "C", "D"}
 S1_PATH = DATA_DIR / "ccf_400_S1_correct_roles.json"
 S2_PATH = DATA_DIR / "ccf_400_S2_no_roles.json"
 S3_PATH = DATA_DIR / "ccf_400_S3_mismatched_roles.json"
+S4_PATH = DATA_DIR / "ccf_400_S4_P_D_swap.json"
+S5_PATH = DATA_DIR / "ccf_400_S5_P_F_swap.json"
+S6_PATH = DATA_DIR / "ccf_400_S6_D_F_swap.json"
 GOLD_PATH = DATA_DIR / "ccf_400_verified_gold.json"
 
 
@@ -90,13 +92,13 @@ GOLD_PATH = DATA_DIR / "ccf_400_verified_gold.json"
 RAW_RESULT_PATH = RESULT_DIR / f"{MODEL}_raw_results.jsonl"
 
 FINAL_JSON_PATH = (
-    RESULT_DIR
-    / f"{MODEL}_S1_S2_S3_results.json"
+     RESULT_DIR
+    / f"{MODEL}_S1_S2_S3_S4_S5_S6_results.json"
 )
 
 FINAL_CSV_PATH = (
     RESULT_DIR
-    / f"{MODEL}_S1_S2_S3_results.csv"
+    / f"{MODEL}_S1_S2_S3_S4_S5_S6_results.csv"
 )
 
 
@@ -178,6 +180,9 @@ def load_json(path: Path):
 s1_data = load_json(S1_PATH)
 s2_data = load_json(S2_PATH)
 s3_data = load_json(S3_PATH)
+s4_data = load_json(S4_PATH)
+s5_data = load_json(S5_PATH)
+s6_data = load_json(S6_PATH)
 gold_data = load_json(GOLD_PATH)
 
 
@@ -212,15 +217,32 @@ s3_ids = [
     int(x["id"])
     for x in s3_data
 ]
+s4_ids = [
+    int(x["id"])
+    for x in s4_data
+]
+
+s5_ids = [
+    int(x["id"])
+    for x in s5_data
+]
+
+s6_ids = [
+    int(x["id"])
+    for x in s6_data
+]
 
 if not (
     s1_ids
     == s2_ids
     == s3_ids
+    == s4_ids
+    == s5_ids
+    == s6_ids
 ):
 
     raise ValueError(
-        "S1、S2、S3 的案件 ID 或顺序不一致"
+        "S1、S2、S3、S4、S5、S6 的案件 ID 或顺序不一致"
     )
 
 
@@ -244,6 +266,18 @@ datasets = {
         int(x["id"]): x
         for x in s3_data
     },
+    "S4": {
+        int(x["id"]): x
+        for x in s4_data
+    },
+    "S5": {
+        int(x["id"]): x
+        for x in s5_data
+    },
+    "S6": {
+        int(x["id"]): x
+        for x in s6_data
+    },
 
 }
 
@@ -264,7 +298,10 @@ def build_user_prompt(
     # 所以这里只按当前 P/D/F 字段加标题。
     if setting in {
         "S1",
-        "S3"
+        "S3",
+        "S4",
+        "S5",
+        "S6"
     }:
 
         return f"""
@@ -381,17 +418,18 @@ def call_model(
                                 user_prompt
                         }
                     ],
-                    #     "glm-5.3": extra_body = {
-                    #         "thinking": {
-                    #             "type": "enabled"
-                    #         },
-                    #         "reasoning_effort": "low"
-                    #     }
+                        # GLM-5.3:extra_body = {
+                        #     "thinking": {
+                        #         "type": "enabled"
+                        #     },
+                        #     "reasoning_effort": "low"
+                        # }
                     #     "qwen3.8-max": extra_body ={
                     #         "reasoning_effort": "low"
                     #     }
-                    #     # GPT-5.6：不启用额外显式推理
-                    #     "gpt-5.6": {},
+                    #     "gpt-5.6": extra_body={
+                    #                         "reasoning_effort": "low"
+                    #             }
 
                     extra_body={
                         "reasoning_effort": "low"
@@ -867,6 +905,9 @@ def load_final_rows_from_jsonl():
         "S1": 1,
         "S2": 2,
         "S3": 3,
+        "S4": 4,
+        "S5": 5,
+        "S6": 6
     }
 
     final_rows = list(
@@ -965,12 +1006,12 @@ def run_experiment():
 
     if TEST_LIMIT is None:
 
-        run_ids = s1_ids
+        run_ids = s4_ids
 
     else:
 
         run_ids = (
-            s1_ids[
+            s4_ids[
                 :TEST_LIMIT
             ]
         )
@@ -979,6 +1020,9 @@ def run_experiment():
         "S1",
         "S2",
         "S3",
+        "S4",
+        "S5",
+        "S6"
     ]
 
     completed_tasks = (
